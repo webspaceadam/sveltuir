@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { notes, selectedNotes, quizNotes, uiState } from "./store";
   import { blur } from 'svelte/transition';
 
@@ -99,6 +100,10 @@
       }
     })
   }
+
+  onMount(function() {
+    window.innerWidth < 769 ? alert("Sveltuir does not work on small screen devices") : null;
+  })
 </script>
 
 <style>
