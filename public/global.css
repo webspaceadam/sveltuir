@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+
+.note {
+    @apply h-16 w-16 rounded-full flex justify-center items-center text-white shadow-lg hover:-translate-y-2 transform transition ease-in-out;
+}
+
+.button {
+    @apply bg-green-500 rounded-full hover:bg-green-300 p-4 m-4 text-white shadow-lg transition-colors ;
+}
+
+.hidden {
+    display: none;
+}
+
+@tailwind utilities;
