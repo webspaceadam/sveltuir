@@ -3,6 +3,7 @@
 
 <p align="center">
   <img src="https://sveltuir.xyz/assets/sveltuirLogo.png"
+       width="100px"
      alt="Sveltuir Logo"
   />
 </p>
