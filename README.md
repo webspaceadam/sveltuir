@@ -10,7 +10,7 @@
 
 
 
-With [Sveltuir]("https://sveltuir.xyz") i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the the fretboard. It is rudimental. But it does its job. 
+With [Sveltuir](https://sveltuir.xyz) i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the the fretboard. It is rudimental. But it does its job. 
 
 
 ## The Techstack
