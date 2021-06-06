@@ -1,11 +1,13 @@
 <h1 align="center">🎸 Sveltuir | Guitar with Svelte!</h1>
 <p align="center">A svelte based web app</p>
 
-![Sveltuir](https://sveltuir.xyz/assets/sveltuirLogo.png)
-
-<img src="https://sveltuir.xyz/assets/sveltuirLogo.png"
+<p align="center">
+  <img src="https://sveltuir.xyz/assets/sveltuirLogo.png"
      alt="Sveltuir Logo"
-     style="align: center;" />
+  />
+</p>
+
+
 
 With `Sveltuir` i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the the fretboard. It is rudimental. But it does its job. 
 
