@@ -10,7 +10,7 @@
 
 
 
-With [Sveltuir](https://sveltuir.xyz) i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the the fretboard. It is rudimental. But it does its job. 
+With [Sveltuir](https://sveltuir.xyz) i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the fretboard. It is rudimental. But it does its job. 
 
 
 ## The Techstack
@@ -20,4 +20,4 @@ With [Sveltuir](https://sveltuir.xyz) i wanted to create a tool that helps me me
 This is my first private public project built with svelte. I love the simplicity of the framework. In combination with Tailwind it is my go to choice for creating projects now. 
 
 ### ⚒ Contributing 
-If you have found a bug, want to suggest a feature or want to contribute to the development, you can do it by opening a new issue in this repo.
+If you've found a bug, want to suggest a feature or want to contribute in the development, you can do it by opening a new issue in this repo.
