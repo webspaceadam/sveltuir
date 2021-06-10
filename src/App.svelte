@@ -1,3 +1,5 @@
+
+
 <script>
   import { onMount } from 'svelte';
   import { notes, selectedNotes, quizNotes, uiState } from "./store";
@@ -6,6 +8,7 @@
   import Game from './util/gameStats';
   import FretboardNavigation from './util/fretboardNavigation';
   import { createNoteId } from './util';
+  import { evaluateKeyInput, isNoteKey } from "./util/keyboardControlUtil";
 
   import NoteGrid from './components/NoteGrid.svelte';
   import Footer from './components/Footer.svelte';
@@ -19,6 +22,9 @@
   let gameScore;
   let withTimeConstraint = false;
   let fretboardNavigationQuestions = false;
+
+  let key;
+  let keyCode;
   
   let noteGradiations = $notes.map((notes, i) => {  
     return {
@@ -72,7 +78,7 @@
     time += 1;
   }
 
-  function handleCorrect() {
+  function handleModalCorrect() {
     Game.countCorrect(getTiming());
     stopTimer();
     toggleModal();
@@ -80,7 +86,7 @@
     gameScore = Game.getGameStats();
   }
 
-  function handleWrong() {
+  function handleModalWrong() {
     Game.countWrong(getTiming());
     stopTimer();
     toggleModal();
@@ -104,7 +110,57 @@
   onMount(function() {
     window.innerWidth < 769 ? alert("Sveltuir does not work on small screen devices") : null;
   })
+
+  const keyCodeToNote = {
+    c: "c",
+    cis: "C",
+    d: "d",
+    dis: "D",
+    e: "e",
+    f: "f",
+    fis: "F",
+    g: "g",
+    gis: "G",
+    a: "a",
+    ais: "A",
+    b: "b"
+  };
+
+  function handleKeydown(event) {
+    key = event.key;
+    keyCode = event.keyCode;
+    const controlKey = event.ctrlKey;
+
+    if(key === 'r') {
+      startRandomNoteQuiz();
+      return;
+    }
+
+    if($quizNotes.length > 0 && isNoteKey(key)) {
+      const searchedNote = $quizNotes[$quizNotes.length - 1];
+      const correctGuess = evaluateKeyInput(key, keyCode, controlKey, searchedNote);
+      correctGuess ? handleKeydownCorrect(searchedNote) : handleKeydownWrong(searchedNote);
+    }
+  }
+
+  function handleKeydownCorrect(correctNote) {
+    Game.countCorrect(getTiming());
+    stopTimer();
+
+    gameScore = Game.getGameStats();
+    selectedNotes.update(selectedNotes => [...selectedNotes, correctNote]);
+  }
+
+  function handleKeydownWrong(correctNote) {
+    Game.countWrong(getTiming());
+    stopTimer();
+
+    gameScore = Game.getGameStats();
+    selectedNotes.update(selectedNotes => [...selectedNotes, correctNote]);
+  }
 </script>
+
+<svelte:window on:keydown={handleKeydown}/>
 
 <style>
   .note-grid {
@@ -123,7 +179,7 @@
 />
 
 {#if $uiState.modalIsVisible}
-  <Modal bind:xCoordinate={$uiState.xCordinate} yCoordinate={$uiState.yCordinate} {handleCorrect} {handleWrong}/>
+  <Modal bind:xCoordinate={$uiState.xCordinate} yCoordinate={$uiState.yCordinate} {handleModalCorrect} {handleModalWrong}/>
 {/if}
 
 <main

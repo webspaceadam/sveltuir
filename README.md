@@ -1,3 +1,6 @@
+# Sveltuir (Svelte & Guitar)
+
+This Webapp is based on [Svelte](https://svelte.dev) + [TailwindCSS](https://tailwindcss.com) and is here to help you memorize the guitar fretboard. 
 <h1 align="center">🎸 Sveltuir | Guitar with Svelte!</h1>
 <p align="center">A svelte based web app</p>
 

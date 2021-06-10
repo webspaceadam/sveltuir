@@ -10,7 +10,6 @@
     function addNoteToSelected(stringNumber, note, fretNumber) {
         FretboardNavigation.getQuestionPosition.call({string: stringNumber, fret: fretNumber});
 
-
         const newNote = createNoteId(stringNumber, note);
 
         selectedNotes.update(selectedNotes => [...selectedNotes, newNote]);
