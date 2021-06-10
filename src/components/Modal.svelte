@@ -3,8 +3,8 @@
 
   export let xCoordinate = 0;
   export let yCoordinate = 0;
-  export let handleCorrect;
-  export let handleWrong;
+  export let handleModalCorrect;
+  export let handleModalWrong;
 
   $: if (xCoordinate >= window.innerWidth - 200) {
 		xCoordinate -= 200;
@@ -28,11 +28,11 @@
     --yCoordinate: {yCoordinate}px;
   "
 >
-  <button class="button" on:click={handleCorrect}>
+  <button class="button" on:click={handleModalCorrect}>
     Correct
   </button>
 
-  <button class="button bg-red-500 hover:bg-red-300" on:click={handleWrong}>
+  <button class="button bg-red-500 hover:bg-red-300" on:click={handleModalWrong}>
     Wrong
   </button>
 </div>
