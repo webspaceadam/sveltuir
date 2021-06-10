@@ -910,14 +910,14 @@ var app = (function () {
      * Check if the user put in the correct note.
      * @param {string} key
      * @param {number} keyCode
-     * @param {boolean} controlKey
+     * @param {boolean} shiftKey
      * @param {string} searchedNote
      * @return {boolean}
      */
-    function evaluateKeyInput(key, keyCode, controlKey, searchedNote) {
+    function evaluateKeyInput(key, keyCode, shiftKey, searchedNote) {
       let keyInput = '';
 
-      if(controlKey && keyCode !== 17) {
+      if(shiftKey && keyCode !== 17) {
         keyInput = getAccidentalStrings(key);
       } else if (keyCode !== 17) {
         keyInput = key.toUpperCase();
@@ -2661,7 +2661,7 @@ var app = (function () {
     		c: function create() {
     			span = element("span");
     			span.textContent = "-";
-    			add_location(span, file$6, 195, 10, 4651);
+    			add_location(span, file$6, 195, 10, 4648);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, span, anchor);
@@ -2690,7 +2690,7 @@ var app = (function () {
     		c: function create() {
     			button = element("button");
     			attr_dev(button, "class", "bg-red-400 w-8 h-8 rounded-full hover:bg-red-200");
-    			add_location(button, file$6, 192, 10, 4539);
+    			add_location(button, file$6, 192, 10, 4536);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, button, anchor);
@@ -2793,18 +2793,18 @@ var app = (function () {
     			t9 = space();
     			if (if_block) if_block.c();
     			attr_dev(h3, "class", "text-2xl text-green-700 font-black");
-    			add_location(h3, file$6, 203, 6, 4846);
+    			add_location(h3, file$6, 203, 6, 4843);
     			attr_dev(h40, "class", "text-xl text-green-700 font-mono mr-2");
-    			add_location(h40, file$6, 205, 8, 4979);
+    			add_location(h40, file$6, 205, 8, 4976);
     			attr_dev(p0, "class", "mr-8");
-    			add_location(p0, file$6, 206, 8, 5050);
+    			add_location(p0, file$6, 206, 8, 5047);
     			attr_dev(h41, "class", "text-xl text-red-700 font-mono mr-2");
-    			add_location(h41, file$6, 208, 8, 5101);
-    			add_location(p1, file$6, 209, 8, 5168);
+    			add_location(h41, file$6, 208, 8, 5098);
+    			add_location(p1, file$6, 209, 8, 5165);
     			attr_dev(div, "class", "flex flex-row justify-center items-center");
-    			add_location(div, file$6, 204, 6, 4915);
+    			add_location(div, file$6, 204, 6, 4912);
     			attr_dev(section, "class", "mt-8 flex flex-col justify-center items-center");
-    			add_location(section, file$6, 202, 4, 4741);
+    			add_location(section, file$6, 202, 4, 4738);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, section, anchor);
@@ -2904,14 +2904,14 @@ var app = (function () {
     			p1 = element("p");
     			t6 = text(t6_value);
     			attr_dev(h40, "class", "text-xl text-green-700 font-mono mr-2");
-    			add_location(h40, file$6, 213, 10, 5311);
+    			add_location(h40, file$6, 213, 10, 5308);
     			attr_dev(p0, "class", "mr-8");
-    			add_location(p0, file$6, 214, 10, 5384);
+    			add_location(p0, file$6, 214, 10, 5381);
     			attr_dev(h41, "class", "text-xl text-red-700 font-mono mr-2");
-    			add_location(h41, file$6, 216, 10, 5438);
-    			add_location(p1, file$6, 217, 10, 5513);
+    			add_location(h41, file$6, 216, 10, 5435);
+    			add_location(p1, file$6, 217, 10, 5510);
     			attr_dev(div, "class", "flex flex-row justify-center items-center");
-    			add_location(div, file$6, 212, 8, 5245);
+    			add_location(div, file$6, 212, 8, 5242);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -3029,11 +3029,11 @@ var app = (function () {
     			t4 = space();
     			create_component(footer.$$.fragment);
     			attr_dev(div, "class", "note-grid mt-4 svelte-1nudaf4");
-    			add_location(div, file$6, 189, 4, 4429);
+    			add_location(div, file$6, 189, 4, 4426);
     			attr_dev(section, "class", "mt-8");
-    			add_location(section, file$6, 187, 2, 4351);
+    			add_location(section, file$6, 187, 2, 4348);
     			attr_dev(main, "class", " text-center flex flex-col justify-center");
-    			add_location(main, file$6, 184, 0, 4289);
+    			add_location(main, file$6, 184, 0, 4286);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -3306,7 +3306,7 @@ var app = (function () {
     	function handleKeydown(event) {
     		key = event.key;
     		keyCode = event.keyCode;
-    		const controlKey = event.ctrlKey;
+    		const shiftKey = event.shiftKey;
 
     		if (key === "n") {
     			startRandomNoteQuiz();
@@ -3315,7 +3315,7 @@ var app = (function () {
 
     		if ($quizNotes.length > 0 && isNoteKey(key)) {
     			const searchedNote = $quizNotes[$quizNotes.length - 1];
-    			const correctGuess = evaluateKeyInput(key, keyCode, controlKey, searchedNote);
+    			const correctGuess = evaluateKeyInput(key, keyCode, shiftKey, searchedNote);
 
     			correctGuess
     			? handleKeydownCorrect(searchedNote)
