@@ -4,14 +4,14 @@ import {quizNotes} from "../store";
  * Check if the user put in the correct note.
  * @param {string} key
  * @param {number} keyCode
- * @param {boolean} controlKey
+ * @param {boolean} shiftKey
  * @param {string} searchedNote
  * @return {boolean}
  */
-function evaluateKeyInput(key, keyCode, controlKey, searchedNote) {
+function evaluateKeyInput(key, keyCode, shiftKey, searchedNote) {
   let keyInput = '';
 
-  if(controlKey && keyCode !== 17) {
+  if(shiftKey && keyCode !== 17) {
     keyInput = getAccidentalStrings(key);
   } else if (keyCode !== 17) {
     keyInput = key.toUpperCase();

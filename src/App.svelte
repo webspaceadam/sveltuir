@@ -129,7 +129,7 @@
   function handleKeydown(event) {
     key = event.key;
     keyCode = event.keyCode;
-    const controlKey = event.ctrlKey;
+    const shiftKey = event.shiftKey;
 
     if(key === 'n') {
       startRandomNoteQuiz();
@@ -138,7 +138,7 @@
 
     if($quizNotes.length > 0 && isNoteKey(key)) {
       const searchedNote = $quizNotes[$quizNotes.length - 1];
-      const correctGuess = evaluateKeyInput(key, keyCode, controlKey, searchedNote);
+      const correctGuess = evaluateKeyInput(key, keyCode, shiftKey, searchedNote);
       correctGuess ? handleKeydownCorrect(searchedNote) : handleKeydownWrong(searchedNote);
     }
   }
