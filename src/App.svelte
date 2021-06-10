@@ -131,7 +131,7 @@
     keyCode = event.keyCode;
     const controlKey = event.ctrlKey;
 
-    if(key === 'r') {
+    if(key === 'n') {
       startRandomNoteQuiz();
       return;
     }
