@@ -11,7 +11,7 @@ This Webapp is based on [Svelte](https://svelte.dev) + [TailwindCSS](https://tai
   />
 </p>
 
-
+test
 
 With [Sveltuir](https://sveltuir.xyz) i wanted to create a tool that helps me memorize the fretboard of the guitar. It can be viewed as a gamification version of the tedious process of learning the fretboard. It is rudimental. But it does its job. 
 
