@@ -10,9 +10,12 @@ const fretNotes = [
 ];
 
 const uiState = writable({
-    modalIsVisible: false,
     xCordinate: 0,
-    yCordinate: 0
+    yCordinate: 0,
+    timing: 5,
+    modalIsVisible: false,
+    isOptionsModalVisible: false,
+    isInfoModalVisible: false
 });
 const selectedNotes = writable([]);
 const quizNotes = writable([]);

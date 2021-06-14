@@ -5,6 +5,12 @@ var app = (function () {
 
     function noop() { }
     const identity = x => x;
+    function assign(tar, src) {
+        // @ts-ignore
+        for (const k in src)
+            tar[k] = src[k];
+        return tar;
+    }
     function add_location(element, file, line, column, char) {
         element.__svelte_meta = {
             loc: { file, line, column, char }
@@ -47,6 +53,42 @@ var app = (function () {
     }
     function component_subscribe(component, store, callback) {
         component.$$.on_destroy.push(subscribe(store, callback));
+    }
+    function create_slot(definition, ctx, $$scope, fn) {
+        if (definition) {
+            const slot_ctx = get_slot_context(definition, ctx, $$scope, fn);
+            return definition[0](slot_ctx);
+        }
+    }
+    function get_slot_context(definition, ctx, $$scope, fn) {
+        return definition[1] && fn
+            ? assign($$scope.ctx.slice(), definition[1](fn(ctx)))
+            : $$scope.ctx;
+    }
+    function get_slot_changes(definition, $$scope, dirty, fn) {
+        if (definition[2] && fn) {
+            const lets = definition[2](fn(dirty));
+            if ($$scope.dirty === undefined) {
+                return lets;
+            }
+            if (typeof lets === 'object') {
+                const merged = [];
+                const len = Math.max($$scope.dirty.length, lets.length);
+                for (let i = 0; i < len; i += 1) {
+                    merged[i] = $$scope.dirty[i] | lets[i];
+                }
+                return merged;
+            }
+            return $$scope.dirty | lets;
+        }
+        return $$scope.dirty;
+    }
+    function update_slot(slot, slot_definition, ctx, $$scope, dirty, get_slot_changes_fn, get_slot_context_fn) {
+        const slot_changes = get_slot_changes(slot_definition, $$scope, dirty, get_slot_changes_fn);
+        if (slot_changes) {
+            const slot_context = get_slot_context(slot_definition, ctx, $$scope, get_slot_context_fn);
+            slot.p(slot_context, slot_changes);
+        }
     }
 
     const is_client = typeof window !== 'undefined';
@@ -124,8 +166,14 @@ var app = (function () {
         else if (node.getAttribute(attribute) !== value)
             node.setAttribute(attribute, value);
     }
+    function to_number(value) {
+        return value === '' ? null : +value;
+    }
     function children(element) {
         return Array.from(element.childNodes);
+    }
+    function set_input_value(input, value) {
+        input.value = value == null ? '' : value;
     }
     function set_style(node, key, value, important) {
         node.style.setProperty(key, value, important ? 'important' : '');
@@ -653,6 +701,23 @@ var app = (function () {
         $inject_state() { }
     }
 
+    function cubicInOut(t) {
+        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
+    }
+
+    function blur(node, { delay = 0, duration = 400, easing = cubicInOut, amount = 5, opacity = 0 }) {
+        const style = getComputedStyle(node);
+        const target_opacity = +style.opacity;
+        const f = style.filter === 'none' ? '' : style.filter;
+        const od = target_opacity * (1 - opacity);
+        return {
+            delay,
+            duration,
+            easing,
+            css: (_t, u) => `opacity: ${target_opacity - (od * u)}; filter: ${f} blur(${u * amount}px);`
+        };
+    }
+
     const subscriber_queue = [];
     /**
      * Creates a `Readable` store that allows reading by subscription.
@@ -725,9 +790,12 @@ var app = (function () {
     ];
 
     const uiState = writable({
-        modalIsVisible: false,
         xCordinate: 0,
-        yCordinate: 0
+        yCordinate: 0,
+        timing: 5,
+        modalIsVisible: false,
+        isOptionsModalVisible: false,
+        isInfoModalVisible: false
     });
     const selectedNotes = writable([]);
     const quizNotes = writable([]);
@@ -757,23 +825,6 @@ var app = (function () {
         ];
 
         return newNoteArray;
-    }
-
-    function cubicInOut(t) {
-        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
-    }
-
-    function blur(node, { delay = 0, duration = 400, easing = cubicInOut, amount = 5, opacity = 0 }) {
-        const style = getComputedStyle(node);
-        const target_opacity = +style.opacity;
-        const f = style.filter === 'none' ? '' : style.filter;
-        const od = target_opacity * (1 - opacity);
-        return {
-            delay,
-            duration,
-            easing,
-            css: (_t, u) => `opacity: ${target_opacity - (od * u)}; filter: ${f} blur(${u * amount}px);`
-        };
     }
 
     const Game = (function() {
@@ -842,68 +893,6 @@ var app = (function () {
 
     function countFretsUp(currentFret, numberOfFretSteps) {
         return currentFret + numberOfFretSteps;
-    }
-
-    const fretboard = get_store_value(notes);
-
-    function getSameNoteStringLowerBandG(position) {
-        const stringNumber = position.string + 1;
-        return createNoteId(stringNumber, getNoteToSearch(stringNumber, countFretsUp(position.fret, 4)));
-    }
-
-    /********* HELPERS */
-    function getNoteToSearch(stringNumber, newFret) {
-        return fretboard[stringNumber][0][newFret];
-    }
-
-    const FretboardNavigation = (function() {
-
-        const publicAPI = {
-            getQuestionPosition
-        };
-
-        return publicAPI;
-
-        /******* LOGIC */
-        function getQuestionPosition() {
-            const position = {string: this.string, fret: this.fret};
-
-            let searchNoteId;
-            let question;
-
-            switch (this.string) {
-                case 1:
-                    searchNoteId = getSameNoteStringLowerBandG(position);
-                    question = createQuestion("same", getStringNote(1));
-                    break;
-            }
-
-            console.log(question);
-            console.log("Search the note: ", searchNoteId);
-        }
-    })();
-
-
-    /********** HELPER FUNCTIONS */
-    function getStringNote(string) {
-        switch (string) {
-            case 0:
-                return "High-E";
-            case 1:
-                return "B";
-            case 2:
-                return "G";
-            case 3:
-                return "D";
-            case 4: 
-                return "A";
-            case 5: 
-                return "Low-E"
-        }
-    }
-
-    function createQuestion(noteLevel , string) {
-        return `Get the ${noteLevel} on the ${string} string`;
     }
 
     /**
@@ -1268,6 +1257,68 @@ var app = (function () {
     	set visible(value) {
     		throw new Error("<Note>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
+    }
+
+    const fretboard = get_store_value(notes);
+
+    function getSameNoteStringLowerBandG(position) {
+        const stringNumber = position.string + 1;
+        return createNoteId(stringNumber, getNoteToSearch(stringNumber, countFretsUp(position.fret, 4)));
+    }
+
+    /********* HELPERS */
+    function getNoteToSearch(stringNumber, newFret) {
+        return fretboard[stringNumber][0][newFret];
+    }
+
+    const FretboardNavigation = (function() {
+
+        const publicAPI = {
+            getQuestionPosition
+        };
+
+        return publicAPI;
+
+        /******* LOGIC */
+        function getQuestionPosition() {
+            const position = {string: this.string, fret: this.fret};
+
+            let searchNoteId;
+            let question;
+
+            switch (this.string) {
+                case 1:
+                    searchNoteId = getSameNoteStringLowerBandG(position);
+                    question = createQuestion("same", getStringNote(1));
+                    break;
+            }
+
+            console.log(question);
+            console.log("Search the note: ", searchNoteId);
+        }
+    })();
+
+
+    /********** HELPER FUNCTIONS */
+    function getStringNote(string) {
+        switch (string) {
+            case 0:
+                return "High-E";
+            case 1:
+                return "B";
+            case 2:
+                return "G";
+            case 3:
+                return "D";
+            case 4: 
+                return "A";
+            case 5: 
+                return "Low-E"
+        }
+    }
+
+    function createQuestion(noteLevel , string) {
+        return `Get the ${noteLevel} on the ${string} string`;
     }
 
     /* src/components/NoteGrid.svelte generated by Svelte v3.31.2 */
@@ -1691,7 +1742,9 @@ var app = (function () {
     	let span1;
     	let t3;
     	let span2;
-    	let a;
+    	let a0;
+    	let t5;
+    	let a1;
 
     	const block = {
     		c: function create() {
@@ -1699,22 +1752,28 @@ var app = (function () {
     			h2 = element("h2");
     			span0 = element("span");
     			span0.textContent = "designed";
-    			t1 = text(" \n    & ");
+    			t1 = text("\n        & ");
     			span1 = element("span");
     			span1.textContent = "developed";
-    			t3 = text(" by \n    ");
+    			t3 = text(" by\n        ");
     			span2 = element("span");
-    			a = element("a");
-    			a.textContent = "Adam Gniady";
+    			a0 = element("a");
+    			a0.textContent = "Adam Gniady";
+    			t5 = text("\n        |\n        ");
+    			a1 = element("a");
+    			a1.textContent = "Impressum";
     			attr_dev(span0, "class", "font-serif");
-    			add_location(span0, file$2, 2, 4, 121);
+    			add_location(span0, file$2, 2, 8, 125);
     			attr_dev(span1, "class", "font-mono");
-    			add_location(span1, file$2, 3, 6, 169);
-    			attr_dev(a, "href", "https://github.com/webspaceadam");
-    			attr_dev(a, "target", "__blank");
-    			add_location(a, file$2, 5, 8, 252);
+    			add_location(span1, file$2, 3, 10, 176);
+    			attr_dev(a0, "href", "https://github.com/webspaceadam");
+    			attr_dev(a0, "target", "__blank");
+    			add_location(a0, file$2, 5, 12, 266);
     			attr_dev(span2, "class", "font-black");
-    			add_location(span2, file$2, 4, 4, 218);
+    			add_location(span2, file$2, 4, 8, 228);
+    			attr_dev(a1, "href", "https://iamneuni.de/impressum");
+    			attr_dev(a1, "target", "_blank");
+    			add_location(a1, file$2, 8, 8, 375);
     			attr_dev(h2, "class", "text-green-700 mt-4");
     			add_location(h2, file$2, 1, 4, 84);
     			attr_dev(footer, "class", "absolute bottom-0 w-full h-28 flex justify-center items-center");
@@ -1731,7 +1790,9 @@ var app = (function () {
     			append_dev(h2, span1);
     			append_dev(h2, t3);
     			append_dev(h2, span2);
-    			append_dev(span2, a);
+    			append_dev(span2, a0);
+    			append_dev(h2, t5);
+    			append_dev(h2, a1);
     		},
     		p: noop,
     		i: noop,
@@ -1950,244 +2011,75 @@ var app = (function () {
     	}
     }
 
-    /* src/components/Header.svelte generated by Svelte v3.31.2 */
-    const file$4 = "src/components/Header.svelte";
+    /* src/components/OptionsModal.svelte generated by Svelte v3.31.2 */
+    const file$4 = "src/components/OptionsModal.svelte";
 
-    // (40:6) {#if withTimeConstraint}
-    function create_if_block(ctx) {
+    function create_fragment$4(ctx) {
     	let div;
-    	let time_1;
-    	let t0;
-    	let t1;
+    	let div_transition;
+    	let current;
+    	const default_slot_template = /*#slots*/ ctx[3].default;
+    	const default_slot = create_slot(default_slot_template, ctx, /*$$scope*/ ctx[2], null);
 
     	const block = {
     		c: function create() {
     			div = element("div");
-    			time_1 = element("time");
-    			t0 = text(/*time*/ ctx[4]);
-    			t1 = text(" Seconds");
-    			attr_dev(time_1, "class", "font-black mr-2 svelte-17o5ddi");
-    			toggle_class(time_1, "overTime", /*time*/ ctx[4] >= 6);
-    			add_location(time_1, file$4, 43, 10, 1012);
-    			attr_dev(div, "class", "m-4 p-4 border-4 border-green-600 text-green-700 text-center rounded-full w-48");
-    			add_location(div, file$4, 40, 8, 890);
-    		},
-    		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
-    			append_dev(div, time_1);
-    			append_dev(time_1, t0);
-    			append_dev(div, t1);
-    		},
-    		p: function update(ctx, dirty) {
-    			if (dirty & /*time*/ 16) set_data_dev(t0, /*time*/ ctx[4]);
-
-    			if (dirty & /*time*/ 16) {
-    				toggle_class(time_1, "overTime", /*time*/ ctx[4] >= 6);
-    			}
-    		},
-    		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
-    		}
-    	};
-
-    	dispatch_dev("SvelteRegisterBlock", {
-    		block,
-    		id: create_if_block.name,
-    		type: "if",
-    		source: "(40:6) {#if withTimeConstraint}",
-    		ctx
-    	});
-
-    	return block;
-    }
-
-    function create_fragment$4(ctx) {
-    	let header;
-    	let div0;
-    	let img;
-    	let img_src_value;
-    	let t0;
-    	let div2;
-    	let button0;
-    	let t2;
-    	let button1;
-    	let t4;
-    	let t5;
-    	let div1;
-    	let checkbox0;
-    	let updating_checked;
-    	let t6;
-    	let checkbox1;
-    	let updating_checked_1;
-    	let current;
-    	let mounted;
-    	let dispose;
-    	let if_block = /*withTimeConstraint*/ ctx[0] && create_if_block(ctx);
-
-    	function checkbox0_checked_binding(value) {
-    		/*checkbox0_checked_binding*/ ctx[5].call(null, value);
-    	}
-
-    	let checkbox0_props = { label: "With time constraint?" };
-
-    	if (/*withTimeConstraint*/ ctx[0] !== void 0) {
-    		checkbox0_props.checked = /*withTimeConstraint*/ ctx[0];
-    	}
-
-    	checkbox0 = new Checkbox({ props: checkbox0_props, $$inline: true });
-    	binding_callbacks.push(() => bind(checkbox0, "checked", checkbox0_checked_binding));
-
-    	function checkbox1_checked_binding(value) {
-    		/*checkbox1_checked_binding*/ ctx[6].call(null, value);
-    	}
-
-    	let checkbox1_props = { label: "Fretboardnavigation questions?" };
-
-    	if (/*fretboardNavigationQuestions*/ ctx[1] !== void 0) {
-    		checkbox1_props.checked = /*fretboardNavigationQuestions*/ ctx[1];
-    	}
-
-    	checkbox1 = new Checkbox({ props: checkbox1_props, $$inline: true });
-    	binding_callbacks.push(() => bind(checkbox1, "checked", checkbox1_checked_binding));
-
-    	const block = {
-    		c: function create() {
-    			header = element("header");
-    			div0 = element("div");
-    			img = element("img");
-    			t0 = space();
-    			div2 = element("div");
-    			button0 = element("button");
-    			button0.textContent = "Reset";
-    			t2 = space();
-    			button1 = element("button");
-    			button1.textContent = "Show Random Note";
-    			t4 = space();
-    			if (if_block) if_block.c();
-    			t5 = space();
-    			div1 = element("div");
-    			create_component(checkbox0.$$.fragment);
-    			t6 = space();
-    			create_component(checkbox1.$$.fragment);
-    			attr_dev(img, "class", "self-center mr-2");
-    			attr_dev(img, "width", "100");
-    			if (img.src !== (img_src_value = "assets/sveltuirLogo.png")) attr_dev(img, "src", img_src_value);
-    			attr_dev(img, "alt", "Sveltuir Logo");
-    			add_location(img, file$4, 22, 8, 463);
-    			attr_dev(div0, "class", "flex justify-center p-2");
-    			add_location(div0, file$4, 21, 4, 417);
-    			attr_dev(button0, "class", "button");
-    			add_location(button0, file$4, 26, 6, 626);
-    			attr_dev(button1, "class", "button");
-    			add_location(button1, file$4, 32, 6, 727);
-    			attr_dev(div1, "class", "flex flex-col justify-center");
-    			add_location(div1, file$4, 47, 6, 1126);
-    			attr_dev(div2, "class", "max-h-24 flex justify-center");
-    			add_location(div2, file$4, 25, 4, 577);
-    			attr_dev(header, "class", "pt-8  text-center flex justify-center items-center");
-    			add_location(header, file$4, 20, 0, 345);
+    			if (default_slot) default_slot.c();
+    			attr_dev(div, "class", "modal w-auto h-auto bg-white rounded-lg shadow-xl flex flex-col justify-center items-center p-4 svelte-mdzsui");
+    			set_style(div, "margin-left", "-" + /*modalWidth*/ ctx[1] / 2 + "px");
+    			set_style(div, "margin-top", "-" + /*modalWidth*/ ctx[1] / 2 + "px");
+    			add_location(div, file$4, 23, 0, 380);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, header, anchor);
-    			append_dev(header, div0);
-    			append_dev(div0, img);
-    			append_dev(header, t0);
-    			append_dev(header, div2);
-    			append_dev(div2, button0);
-    			append_dev(div2, t2);
-    			append_dev(div2, button1);
-    			append_dev(div2, t4);
-    			if (if_block) if_block.m(div2, null);
-    			append_dev(div2, t5);
-    			append_dev(div2, div1);
-    			mount_component(checkbox0, div1, null);
-    			append_dev(div1, t6);
-    			mount_component(checkbox1, div1, null);
+    			insert_dev(target, div, anchor);
+
+    			if (default_slot) {
+    				default_slot.m(div, null);
+    			}
+
+    			/*div_binding*/ ctx[4](div);
     			current = true;
-
-    			if (!mounted) {
-    				dispose = [
-    					listen_dev(
-    						button0,
-    						"click",
-    						function () {
-    							if (is_function(/*resetGame*/ ctx[2])) /*resetGame*/ ctx[2].apply(this, arguments);
-    						},
-    						false,
-    						false,
-    						false
-    					),
-    					listen_dev(
-    						button1,
-    						"click",
-    						function () {
-    							if (is_function(/*startRandomNoteQuiz*/ ctx[3])) /*startRandomNoteQuiz*/ ctx[3].apply(this, arguments);
-    						},
-    						false,
-    						false,
-    						false
-    					)
-    				];
-
-    				mounted = true;
-    			}
     		},
-    		p: function update(new_ctx, [dirty]) {
-    			ctx = new_ctx;
-
-    			if (/*withTimeConstraint*/ ctx[0]) {
-    				if (if_block) {
-    					if_block.p(ctx, dirty);
-    				} else {
-    					if_block = create_if_block(ctx);
-    					if_block.c();
-    					if_block.m(div2, t5);
+    		p: function update(ctx, [dirty]) {
+    			if (default_slot) {
+    				if (default_slot.p && dirty & /*$$scope*/ 4) {
+    					update_slot(default_slot, default_slot_template, ctx, /*$$scope*/ ctx[2], dirty, null, null);
     				}
-    			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
     			}
 
-    			const checkbox0_changes = {};
-
-    			if (!updating_checked && dirty & /*withTimeConstraint*/ 1) {
-    				updating_checked = true;
-    				checkbox0_changes.checked = /*withTimeConstraint*/ ctx[0];
-    				add_flush_callback(() => updating_checked = false);
+    			if (!current || dirty & /*modalWidth*/ 2) {
+    				set_style(div, "margin-left", "-" + /*modalWidth*/ ctx[1] / 2 + "px");
     			}
 
-    			checkbox0.$set(checkbox0_changes);
-    			const checkbox1_changes = {};
-
-    			if (!updating_checked_1 && dirty & /*fretboardNavigationQuestions*/ 2) {
-    				updating_checked_1 = true;
-    				checkbox1_changes.checked = /*fretboardNavigationQuestions*/ ctx[1];
-    				add_flush_callback(() => updating_checked_1 = false);
+    			if (!current || dirty & /*modalWidth*/ 2) {
+    				set_style(div, "margin-top", "-" + /*modalWidth*/ ctx[1] / 2 + "px");
     			}
-
-    			checkbox1.$set(checkbox1_changes);
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(checkbox0.$$.fragment, local);
-    			transition_in(checkbox1.$$.fragment, local);
+    			transition_in(default_slot, local);
+
+    			add_render_callback(() => {
+    				if (!div_transition) div_transition = create_bidirectional_transition(div, blur, { duration: 200 }, true);
+    				div_transition.run(1);
+    			});
+
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(checkbox0.$$.fragment, local);
-    			transition_out(checkbox1.$$.fragment, local);
+    			transition_out(default_slot, local);
+    			if (!div_transition) div_transition = create_bidirectional_transition(div, blur, { duration: 200 }, false);
+    			div_transition.run(0);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(header);
-    			if (if_block) if_block.d();
-    			destroy_component(checkbox0);
-    			destroy_component(checkbox1);
-    			mounted = false;
-    			run_all(dispose);
+    			if (detaching) detach_dev(div);
+    			if (default_slot) default_slot.d(detaching);
+    			/*div_binding*/ ctx[4](null);
+    			if (detaching && div_transition) div_transition.end();
     		}
     	};
 
@@ -2203,6 +2095,789 @@ var app = (function () {
     }
 
     function instance$4($$self, $$props, $$invalidate) {
+    	let { $$slots: slots = {}, $$scope } = $$props;
+    	validate_slots("OptionsModal", slots, ['default']);
+
+    	onMount(() => {
+    		$$invalidate(1, modalWidth = Modal.offsetWidth);
+    		modalHeight = Modal.offsetHeight;
+    	});
+
+    	let Modal;
+    	let modalWidth = 0;
+    	let modalHeight = 0;
+    	const writable_props = [];
+
+    	Object.keys($$props).forEach(key => {
+    		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<OptionsModal> was created with unknown prop '${key}'`);
+    	});
+
+    	function div_binding($$value) {
+    		binding_callbacks[$$value ? "unshift" : "push"](() => {
+    			Modal = $$value;
+    			$$invalidate(0, Modal);
+    		});
+    	}
+
+    	$$self.$$set = $$props => {
+    		if ("$$scope" in $$props) $$invalidate(2, $$scope = $$props.$$scope);
+    	};
+
+    	$$self.$capture_state = () => ({
+    		blur,
+    		onMount,
+    		Modal,
+    		modalWidth,
+    		modalHeight
+    	});
+
+    	$$self.$inject_state = $$props => {
+    		if ("Modal" in $$props) $$invalidate(0, Modal = $$props.Modal);
+    		if ("modalWidth" in $$props) $$invalidate(1, modalWidth = $$props.modalWidth);
+    		if ("modalHeight" in $$props) modalHeight = $$props.modalHeight;
+    	};
+
+    	if ($$props && "$$inject" in $$props) {
+    		$$self.$inject_state($$props.$$inject);
+    	}
+
+    	return [Modal, modalWidth, $$scope, slots, div_binding];
+    }
+
+    class OptionsModal extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$4, create_fragment$4, safe_not_equal, {});
+
+    		dispatch_dev("SvelteRegisterComponent", {
+    			component: this,
+    			tagName: "OptionsModal",
+    			options,
+    			id: create_fragment$4.name
+    		});
+    	}
+    }
+
+    /* src/components/Header.svelte generated by Svelte v3.31.2 */
+    const file$5 = "src/components/Header.svelte";
+
+    // (42:8) {#if withTimeConstraint}
+    function create_if_block_2(ctx) {
+    	let div;
+    	let time_1;
+    	let t0;
+    	let t1;
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			time_1 = element("time");
+    			t0 = text(/*time*/ ctx[3]);
+    			t1 = text(" Seconds");
+    			attr_dev(time_1, "class", "font-black mr-2 svelte-17o5ddi");
+    			toggle_class(time_1, "overTime", /*time*/ ctx[3] >= /*$uiState*/ ctx[4].timing);
+    			add_location(time_1, file$5, 45, 10, 1111);
+    			attr_dev(div, "class", "m-4 p-4 border-4 border-green-600 text-green-700 text-center rounded-full w-48");
+    			add_location(div, file$5, 42, 8, 989);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    			append_dev(div, time_1);
+    			append_dev(time_1, t0);
+    			append_dev(div, t1);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*time*/ 8) set_data_dev(t0, /*time*/ ctx[3]);
+
+    			if (dirty & /*time, $uiState*/ 24) {
+    				toggle_class(time_1, "overTime", /*time*/ ctx[3] >= /*$uiState*/ ctx[4].timing);
+    			}
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block_2.name,
+    		type: "if",
+    		source: "(42:8) {#if withTimeConstraint}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (76:8) {#if $uiState.isOptionsModalVisible}
+    function create_if_block_1(ctx) {
+    	let optionsmodal;
+    	let current;
+
+    	optionsmodal = new OptionsModal({
+    			props: {
+    				class: "w-96 h-96",
+    				$$slots: { default: [create_default_slot_1] },
+    				$$scope: { ctx }
+    			},
+    			$$inline: true
+    		});
+
+    	const block = {
+    		c: function create() {
+    			create_component(optionsmodal.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(optionsmodal, target, anchor);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			const optionsmodal_changes = {};
+
+    			if (dirty & /*$$scope, $uiState, withTimeConstraint*/ 4113) {
+    				optionsmodal_changes.$$scope = { dirty, ctx };
+    			}
+
+    			optionsmodal.$set(optionsmodal_changes);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(optionsmodal.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(optionsmodal.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(optionsmodal, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block_1.name,
+    		type: "if",
+    		source: "(76:8) {#if $uiState.isOptionsModalVisible}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (77:12) <OptionsModal class="w-96 h-96">
+    function create_default_slot_1(ctx) {
+    	let h4;
+    	let t1;
+    	let div;
+    	let checkbox;
+    	let updating_checked;
+    	let t2;
+    	let label;
+    	let t3;
+    	let input;
+    	let t4;
+    	let button;
+    	let current;
+    	let mounted;
+    	let dispose;
+
+    	function checkbox_checked_binding(value) {
+    		/*checkbox_checked_binding*/ ctx[8].call(null, value);
+    	}
+
+    	let checkbox_props = { label: "With time constraint?" };
+
+    	if (/*withTimeConstraint*/ ctx[0] !== void 0) {
+    		checkbox_props.checked = /*withTimeConstraint*/ ctx[0];
+    	}
+
+    	checkbox = new Checkbox({ props: checkbox_props, $$inline: true });
+    	binding_callbacks.push(() => bind(checkbox, "checked", checkbox_checked_binding));
+
+    	const block = {
+    		c: function create() {
+    			h4 = element("h4");
+    			h4.textContent = "Options";
+    			t1 = space();
+    			div = element("div");
+    			create_component(checkbox.$$.fragment);
+    			t2 = space();
+    			label = element("label");
+    			t3 = text("Timeroptions\n                        ");
+    			input = element("input");
+    			t4 = space();
+    			button = element("button");
+    			button.textContent = "Close";
+    			attr_dev(h4, "class", "text-2xl text-green-700 font-black");
+    			add_location(h4, file$5, 77, 16, 2205);
+    			attr_dev(input, "class", "mt-2 border-2 rounded border-green-700 p-4 flex flex-shrink-0 justify-center items-center mr-2 focus-within:border-blue-500");
+    			attr_dev(input, "type", "number");
+    			add_location(input, file$5, 84, 24, 2604);
+    			attr_dev(label, "class", "mt-2 text-left text-lg text-green-700 font-bold");
+    			add_location(label, file$5, 82, 20, 2479);
+    			attr_dev(div, "class", "flex flex-col justify-center");
+    			add_location(div, file$5, 80, 16, 2319);
+    			attr_dev(button, "class", "button");
+    			add_location(button, file$5, 91, 16, 2962);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, h4, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, div, anchor);
+    			mount_component(checkbox, div, null);
+    			append_dev(div, t2);
+    			append_dev(div, label);
+    			append_dev(label, t3);
+    			append_dev(label, input);
+    			set_input_value(input, /*$uiState*/ ctx[4].timing);
+    			insert_dev(target, t4, anchor);
+    			insert_dev(target, button, anchor);
+    			current = true;
+
+    			if (!mounted) {
+    				dispose = [
+    					listen_dev(input, "input", /*input_input_handler*/ ctx[9]),
+    					listen_dev(button, "click", /*click_handler_2*/ ctx[10], false, false, false)
+    				];
+
+    				mounted = true;
+    			}
+    		},
+    		p: function update(ctx, dirty) {
+    			const checkbox_changes = {};
+
+    			if (!updating_checked && dirty & /*withTimeConstraint*/ 1) {
+    				updating_checked = true;
+    				checkbox_changes.checked = /*withTimeConstraint*/ ctx[0];
+    				add_flush_callback(() => updating_checked = false);
+    			}
+
+    			checkbox.$set(checkbox_changes);
+
+    			if (dirty & /*$uiState*/ 16 && to_number(input.value) !== /*$uiState*/ ctx[4].timing) {
+    				set_input_value(input, /*$uiState*/ ctx[4].timing);
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(checkbox.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(checkbox.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(h4);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(div);
+    			destroy_component(checkbox);
+    			if (detaching) detach_dev(t4);
+    			if (detaching) detach_dev(button);
+    			mounted = false;
+    			run_all(dispose);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_default_slot_1.name,
+    		type: "slot",
+    		source: "(77:12) <OptionsModal class=\\\"w-96 h-96\\\">",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (106:8) {#if $uiState.isInfoModalVisible}
+    function create_if_block(ctx) {
+    	let optionsmodal;
+    	let current;
+
+    	optionsmodal = new OptionsModal({
+    			props: {
+    				class: "h-3/5",
+    				$$slots: { default: [create_default_slot] },
+    				$$scope: { ctx }
+    			},
+    			$$inline: true
+    		});
+
+    	const block = {
+    		c: function create() {
+    			create_component(optionsmodal.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(optionsmodal, target, anchor);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			const optionsmodal_changes = {};
+
+    			if (dirty & /*$$scope*/ 4096) {
+    				optionsmodal_changes.$$scope = { dirty, ctx };
+    			}
+
+    			optionsmodal.$set(optionsmodal_changes);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(optionsmodal.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(optionsmodal.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(optionsmodal, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block.name,
+    		type: "if",
+    		source: "(106:8) {#if $uiState.isInfoModalVisible}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (107:12) <OptionsModal class="h-3/5">
+    function create_default_slot(ctx) {
+    	let h4;
+    	let t1;
+    	let p;
+    	let t2;
+    	let strong;
+    	let t4;
+    	let t5;
+    	let h5;
+    	let t7;
+    	let table;
+    	let tr0;
+    	let th0;
+    	let t9;
+    	let th1;
+    	let t11;
+    	let tr1;
+    	let td0;
+    	let t13;
+    	let td1;
+    	let code0;
+    	let t15;
+    	let tr2;
+    	let td2;
+    	let t17;
+    	let td3;
+    	let code1;
+    	let t19;
+    	let tr3;
+    	let td4;
+    	let t21;
+    	let td5;
+    	let code2;
+    	let t23;
+    	let code3;
+    	let t25;
+    	let button;
+    	let mounted;
+    	let dispose;
+
+    	const block = {
+    		c: function create() {
+    			h4 = element("h4");
+    			h4.textContent = "Information";
+    			t1 = space();
+    			p = element("p");
+    			t2 = text("This App is useable with your ");
+    			strong = element("strong");
+    			strong.textContent = "keyboard";
+    			t4 = text("!");
+    			t5 = space();
+    			h5 = element("h5");
+    			h5.textContent = "Keyboard Commands";
+    			t7 = space();
+    			table = element("table");
+    			tr0 = element("tr");
+    			th0 = element("th");
+    			th0.textContent = "Command";
+    			t9 = space();
+    			th1 = element("th");
+    			th1.textContent = "Key";
+    			t11 = space();
+    			tr1 = element("tr");
+    			td0 = element("td");
+    			td0.textContent = "Get new random note";
+    			t13 = space();
+    			td1 = element("td");
+    			code0 = element("code");
+    			code0.textContent = "n";
+    			t15 = space();
+    			tr2 = element("tr");
+    			td2 = element("td");
+    			td2.textContent = "Note without accidental";
+    			t17 = space();
+    			td3 = element("td");
+    			code1 = element("code");
+    			code1.textContent = "c, d, e, f, g, a, b";
+    			t19 = space();
+    			tr3 = element("tr");
+    			td4 = element("td");
+    			td4.textContent = "Note with accidental";
+    			t21 = space();
+    			td5 = element("td");
+    			code2 = element("code");
+    			code2.textContent = "Shift";
+    			t23 = text("\n                            +\n                            ");
+    			code3 = element("code");
+    			code3.textContent = "c, d, e, f, g, a, b";
+    			t25 = space();
+    			button = element("button");
+    			button.textContent = "Close";
+    			attr_dev(h4, "class", "text-2xl text-green-700 font-black");
+    			add_location(h4, file$5, 107, 16, 3461);
+    			add_location(strong, file$5, 111, 50, 3633);
+    			add_location(p, file$5, 110, 16, 3579);
+    			attr_dev(h5, "class", "text-lg font-bold text-green-700 mt-4");
+    			add_location(h5, file$5, 113, 16, 3697);
+    			attr_dev(th0, "class", "p-4");
+    			add_location(th0, file$5, 118, 24, 3915);
+    			attr_dev(th1, "class", "p-4");
+    			add_location(th1, file$5, 121, 24, 4022);
+    			attr_dev(tr0, "class", "p-4");
+    			add_location(tr0, file$5, 117, 20, 3874);
+    			attr_dev(td0, "class", "p-4 border-2");
+    			add_location(td0, file$5, 126, 24, 4176);
+    			add_location(code0, file$5, 130, 28, 4358);
+    			attr_dev(td1, "class", "p-4 border-2");
+    			add_location(td1, file$5, 129, 24, 4304);
+    			add_location(tr1, file$5, 125, 20, 4147);
+    			attr_dev(td2, "class", "p-4 border-2");
+    			add_location(td2, file$5, 134, 24, 4478);
+    			add_location(code1, file$5, 138, 28, 4664);
+    			attr_dev(td3, "class", "p-4 border-2");
+    			add_location(td3, file$5, 137, 24, 4610);
+    			add_location(tr2, file$5, 133, 20, 4449);
+    			attr_dev(td4, "class", "p-4 border-2");
+    			add_location(td4, file$5, 142, 24, 4802);
+    			add_location(code2, file$5, 146, 28, 4985);
+    			add_location(code3, file$5, 148, 28, 5062);
+    			attr_dev(td5, "class", "p-4 border-2");
+    			add_location(td5, file$5, 145, 24, 4931);
+    			add_location(tr3, file$5, 141, 20, 4773);
+    			attr_dev(table, "class", "border-2 mt-2");
+    			add_location(table, file$5, 116, 16, 3824);
+    			attr_dev(button, "class", "button");
+    			add_location(button, file$5, 152, 16, 5192);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, h4, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, p, anchor);
+    			append_dev(p, t2);
+    			append_dev(p, strong);
+    			append_dev(p, t4);
+    			insert_dev(target, t5, anchor);
+    			insert_dev(target, h5, anchor);
+    			insert_dev(target, t7, anchor);
+    			insert_dev(target, table, anchor);
+    			append_dev(table, tr0);
+    			append_dev(tr0, th0);
+    			append_dev(tr0, t9);
+    			append_dev(tr0, th1);
+    			append_dev(table, t11);
+    			append_dev(table, tr1);
+    			append_dev(tr1, td0);
+    			append_dev(tr1, t13);
+    			append_dev(tr1, td1);
+    			append_dev(td1, code0);
+    			append_dev(table, t15);
+    			append_dev(table, tr2);
+    			append_dev(tr2, td2);
+    			append_dev(tr2, t17);
+    			append_dev(tr2, td3);
+    			append_dev(td3, code1);
+    			append_dev(table, t19);
+    			append_dev(table, tr3);
+    			append_dev(tr3, td4);
+    			append_dev(tr3, t21);
+    			append_dev(tr3, td5);
+    			append_dev(td5, code2);
+    			append_dev(td5, t23);
+    			append_dev(td5, code3);
+    			insert_dev(target, t25, anchor);
+    			insert_dev(target, button, anchor);
+
+    			if (!mounted) {
+    				dispose = listen_dev(button, "click", /*click_handler_3*/ ctx[11], false, false, false);
+    				mounted = true;
+    			}
+    		},
+    		p: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(h4);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(p);
+    			if (detaching) detach_dev(t5);
+    			if (detaching) detach_dev(h5);
+    			if (detaching) detach_dev(t7);
+    			if (detaching) detach_dev(table);
+    			if (detaching) detach_dev(t25);
+    			if (detaching) detach_dev(button);
+    			mounted = false;
+    			dispose();
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_default_slot.name,
+    		type: "slot",
+    		source: "(107:12) <OptionsModal class=\\\"h-3/5\\\">",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function create_fragment$5(ctx) {
+    	let header;
+    	let div0;
+    	let img;
+    	let img_src_value;
+    	let t0;
+    	let div1;
+    	let button0;
+    	let t2;
+    	let button1;
+    	let t4;
+    	let t5;
+    	let button2;
+    	let t7;
+    	let button3;
+    	let svg;
+    	let path;
+    	let t8;
+    	let t9;
+    	let current;
+    	let mounted;
+    	let dispose;
+    	let if_block0 = /*withTimeConstraint*/ ctx[0] && create_if_block_2(ctx);
+    	let if_block1 = /*$uiState*/ ctx[4].isOptionsModalVisible && create_if_block_1(ctx);
+    	let if_block2 = /*$uiState*/ ctx[4].isInfoModalVisible && create_if_block(ctx);
+
+    	const block = {
+    		c: function create() {
+    			header = element("header");
+    			div0 = element("div");
+    			img = element("img");
+    			t0 = space();
+    			div1 = element("div");
+    			button0 = element("button");
+    			button0.textContent = "Reset";
+    			t2 = space();
+    			button1 = element("button");
+    			button1.textContent = "Show Random Note";
+    			t4 = space();
+    			if (if_block0) if_block0.c();
+    			t5 = space();
+    			button2 = element("button");
+    			button2.textContent = "Options";
+    			t7 = space();
+    			button3 = element("button");
+    			svg = svg_element("svg");
+    			path = svg_element("path");
+    			t8 = space();
+    			if (if_block1) if_block1.c();
+    			t9 = space();
+    			if (if_block2) if_block2.c();
+    			attr_dev(img, "class", "self-center mr-2");
+    			attr_dev(img, "width", "100");
+    			if (img.src !== (img_src_value = "assets/sveltuirLogo.png")) attr_dev(img, "src", img_src_value);
+    			attr_dev(img, "alt", "Sveltuir Logo");
+    			add_location(img, file$5, 24, 8, 539);
+    			attr_dev(div0, "class", "flex justify-center p-2");
+    			add_location(div0, file$5, 23, 4, 493);
+    			attr_dev(button0, "class", "button");
+    			add_location(button0, file$5, 28, 8, 704);
+    			attr_dev(button1, "class", "button");
+    			add_location(button1, file$5, 34, 8, 806);
+    			attr_dev(button2, "class", "button");
+    			add_location(button2, file$5, 49, 8, 1242);
+    			attr_dev(path, "fill-rule", "evenodd");
+    			attr_dev(path, "d", "M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z");
+    			attr_dev(path, "clip-rule", "evenodd");
+    			add_location(path, file$5, 71, 16, 1879);
+    			attr_dev(svg, "xmlns", "http://www.w3.org/2000/svg");
+    			attr_dev(svg, "class", "h-5 w-5");
+    			attr_dev(svg, "viewBox", "0 0 20 20");
+    			attr_dev(svg, "fill", "currentColor");
+    			add_location(svg, file$5, 70, 12, 1766);
+    			attr_dev(button3, "class", "text-green-700");
+    			add_location(button3, file$5, 61, 8, 1509);
+    			attr_dev(div1, "class", "max-h-24 flex justify-center");
+    			add_location(div1, file$5, 27, 4, 653);
+    			attr_dev(header, "class", "pt-8  text-center flex justify-center items-center");
+    			add_location(header, file$5, 22, 0, 421);
+    		},
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, header, anchor);
+    			append_dev(header, div0);
+    			append_dev(div0, img);
+    			append_dev(header, t0);
+    			append_dev(header, div1);
+    			append_dev(div1, button0);
+    			append_dev(div1, t2);
+    			append_dev(div1, button1);
+    			append_dev(div1, t4);
+    			if (if_block0) if_block0.m(div1, null);
+    			append_dev(div1, t5);
+    			append_dev(div1, button2);
+    			append_dev(div1, t7);
+    			append_dev(div1, button3);
+    			append_dev(button3, svg);
+    			append_dev(svg, path);
+    			append_dev(div1, t8);
+    			if (if_block1) if_block1.m(div1, null);
+    			append_dev(div1, t9);
+    			if (if_block2) if_block2.m(div1, null);
+    			current = true;
+
+    			if (!mounted) {
+    				dispose = [
+    					listen_dev(
+    						button0,
+    						"click",
+    						function () {
+    							if (is_function(/*resetGame*/ ctx[1])) /*resetGame*/ ctx[1].apply(this, arguments);
+    						},
+    						false,
+    						false,
+    						false
+    					),
+    					listen_dev(
+    						button1,
+    						"click",
+    						function () {
+    							if (is_function(/*startRandomNoteQuiz*/ ctx[2])) /*startRandomNoteQuiz*/ ctx[2].apply(this, arguments);
+    						},
+    						false,
+    						false,
+    						false
+    					),
+    					listen_dev(button2, "click", /*click_handler*/ ctx[6], false, false, false),
+    					listen_dev(button3, "click", /*click_handler_1*/ ctx[7], false, false, false)
+    				];
+
+    				mounted = true;
+    			}
+    		},
+    		p: function update(new_ctx, [dirty]) {
+    			ctx = new_ctx;
+
+    			if (/*withTimeConstraint*/ ctx[0]) {
+    				if (if_block0) {
+    					if_block0.p(ctx, dirty);
+    				} else {
+    					if_block0 = create_if_block_2(ctx);
+    					if_block0.c();
+    					if_block0.m(div1, t5);
+    				}
+    			} else if (if_block0) {
+    				if_block0.d(1);
+    				if_block0 = null;
+    			}
+
+    			if (/*$uiState*/ ctx[4].isOptionsModalVisible) {
+    				if (if_block1) {
+    					if_block1.p(ctx, dirty);
+
+    					if (dirty & /*$uiState*/ 16) {
+    						transition_in(if_block1, 1);
+    					}
+    				} else {
+    					if_block1 = create_if_block_1(ctx);
+    					if_block1.c();
+    					transition_in(if_block1, 1);
+    					if_block1.m(div1, t9);
+    				}
+    			} else if (if_block1) {
+    				group_outros();
+
+    				transition_out(if_block1, 1, 1, () => {
+    					if_block1 = null;
+    				});
+
+    				check_outros();
+    			}
+
+    			if (/*$uiState*/ ctx[4].isInfoModalVisible) {
+    				if (if_block2) {
+    					if_block2.p(ctx, dirty);
+
+    					if (dirty & /*$uiState*/ 16) {
+    						transition_in(if_block2, 1);
+    					}
+    				} else {
+    					if_block2 = create_if_block(ctx);
+    					if_block2.c();
+    					transition_in(if_block2, 1);
+    					if_block2.m(div1, null);
+    				}
+    			} else if (if_block2) {
+    				group_outros();
+
+    				transition_out(if_block2, 1, 1, () => {
+    					if_block2 = null;
+    				});
+
+    				check_outros();
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block1);
+    			transition_in(if_block2);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(if_block1);
+    			transition_out(if_block2);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(header);
+    			if (if_block0) if_block0.d();
+    			if (if_block1) if_block1.d();
+    			if (if_block2) if_block2.d();
+    			mounted = false;
+    			run_all(dispose);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_fragment$5.name,
+    		type: "component",
+    		source: "",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function instance$5($$self, $$props, $$invalidate) {
+    	let $uiState;
+    	validate_store(uiState, "uiState");
+    	component_subscribe($$self, uiState, $$value => $$invalidate(4, $uiState = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("Header", slots, []);
     	let { resetGame } = $$props;
@@ -2223,39 +2898,58 @@ var app = (function () {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Header> was created with unknown prop '${key}'`);
     	});
 
-    	function checkbox0_checked_binding(value) {
+    	const click_handler = () => uiState.update(uiState => {
+    		return { ...uiState, isOptionsModalVisible: true };
+    	});
+
+    	const click_handler_1 = () => uiState.update(uiState => {
+    		return { ...uiState, isInfoModalVisible: true };
+    	});
+
+    	function checkbox_checked_binding(value) {
     		withTimeConstraint = value;
     		$$invalidate(0, withTimeConstraint);
     	}
 
-    	function checkbox1_checked_binding(value) {
-    		fretboardNavigationQuestions = value;
-    		$$invalidate(1, fretboardNavigationQuestions);
+    	function input_input_handler() {
+    		$uiState.timing = to_number(this.value);
+    		uiState.set($uiState);
     	}
 
+    	const click_handler_2 = () => uiState.update(uiState => {
+    		return { ...uiState, isOptionsModalVisible: false };
+    	});
+
+    	const click_handler_3 = () => uiState.update(uiState => {
+    		return { ...uiState, isInfoModalVisible: false };
+    	});
+
     	$$self.$$set = $$props => {
-    		if ("resetGame" in $$props) $$invalidate(2, resetGame = $$props.resetGame);
-    		if ("startRandomNoteQuiz" in $$props) $$invalidate(3, startRandomNoteQuiz = $$props.startRandomNoteQuiz);
-    		if ("time" in $$props) $$invalidate(4, time = $$props.time);
+    		if ("resetGame" in $$props) $$invalidate(1, resetGame = $$props.resetGame);
+    		if ("startRandomNoteQuiz" in $$props) $$invalidate(2, startRandomNoteQuiz = $$props.startRandomNoteQuiz);
+    		if ("time" in $$props) $$invalidate(3, time = $$props.time);
     		if ("withTimeConstraint" in $$props) $$invalidate(0, withTimeConstraint = $$props.withTimeConstraint);
-    		if ("fretboardNavigationQuestions" in $$props) $$invalidate(1, fretboardNavigationQuestions = $$props.fretboardNavigationQuestions);
+    		if ("fretboardNavigationQuestions" in $$props) $$invalidate(5, fretboardNavigationQuestions = $$props.fretboardNavigationQuestions);
     	};
 
     	$$self.$capture_state = () => ({
+    		uiState,
     		Checkbox,
+    		OptionsModal,
     		resetGame,
     		startRandomNoteQuiz,
     		time,
     		withTimeConstraint,
-    		fretboardNavigationQuestions
+    		fretboardNavigationQuestions,
+    		$uiState
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ("resetGame" in $$props) $$invalidate(2, resetGame = $$props.resetGame);
-    		if ("startRandomNoteQuiz" in $$props) $$invalidate(3, startRandomNoteQuiz = $$props.startRandomNoteQuiz);
-    		if ("time" in $$props) $$invalidate(4, time = $$props.time);
+    		if ("resetGame" in $$props) $$invalidate(1, resetGame = $$props.resetGame);
+    		if ("startRandomNoteQuiz" in $$props) $$invalidate(2, startRandomNoteQuiz = $$props.startRandomNoteQuiz);
+    		if ("time" in $$props) $$invalidate(3, time = $$props.time);
     		if ("withTimeConstraint" in $$props) $$invalidate(0, withTimeConstraint = $$props.withTimeConstraint);
-    		if ("fretboardNavigationQuestions" in $$props) $$invalidate(1, fretboardNavigationQuestions = $$props.fretboardNavigationQuestions);
+    		if ("fretboardNavigationQuestions" in $$props) $$invalidate(5, fretboardNavigationQuestions = $$props.fretboardNavigationQuestions);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -2264,12 +2958,17 @@ var app = (function () {
 
     	return [
     		withTimeConstraint,
-    		fretboardNavigationQuestions,
     		resetGame,
     		startRandomNoteQuiz,
     		time,
-    		checkbox0_checked_binding,
-    		checkbox1_checked_binding
+    		$uiState,
+    		fretboardNavigationQuestions,
+    		click_handler,
+    		click_handler_1,
+    		checkbox_checked_binding,
+    		input_input_handler,
+    		click_handler_2,
+    		click_handler_3
     	];
     }
 
@@ -2277,33 +2976,33 @@ var app = (function () {
     	constructor(options) {
     		super(options);
 
-    		init(this, options, instance$4, create_fragment$4, safe_not_equal, {
-    			resetGame: 2,
-    			startRandomNoteQuiz: 3,
-    			time: 4,
+    		init(this, options, instance$5, create_fragment$5, safe_not_equal, {
+    			resetGame: 1,
+    			startRandomNoteQuiz: 2,
+    			time: 3,
     			withTimeConstraint: 0,
-    			fretboardNavigationQuestions: 1
+    			fretboardNavigationQuestions: 5
     		});
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
     			tagName: "Header",
     			options,
-    			id: create_fragment$4.name
+    			id: create_fragment$5.name
     		});
 
     		const { ctx } = this.$$;
     		const props = options.props || {};
 
-    		if (/*resetGame*/ ctx[2] === undefined && !("resetGame" in props)) {
+    		if (/*resetGame*/ ctx[1] === undefined && !("resetGame" in props)) {
     			console.warn("<Header> was created without expected prop 'resetGame'");
     		}
 
-    		if (/*startRandomNoteQuiz*/ ctx[3] === undefined && !("startRandomNoteQuiz" in props)) {
+    		if (/*startRandomNoteQuiz*/ ctx[2] === undefined && !("startRandomNoteQuiz" in props)) {
     			console.warn("<Header> was created without expected prop 'startRandomNoteQuiz'");
     		}
 
-    		if (/*time*/ ctx[4] === undefined && !("time" in props)) {
+    		if (/*time*/ ctx[3] === undefined && !("time" in props)) {
     			console.warn("<Header> was created without expected prop 'time'");
     		}
     	}
@@ -2350,9 +3049,9 @@ var app = (function () {
     }
 
     /* src/components/Modal.svelte generated by Svelte v3.31.2 */
-    const file$5 = "src/components/Modal.svelte";
+    const file$6 = "src/components/Modal.svelte";
 
-    function create_fragment$5(ctx) {
+    function create_fragment$6(ctx) {
     	let div;
     	let button0;
     	let t1;
@@ -2371,13 +3070,13 @@ var app = (function () {
     			button1 = element("button");
     			button1.textContent = "Wrong";
     			attr_dev(button0, "class", "button");
-    			add_location(button0, file$5, 30, 2, 631);
+    			add_location(button0, file$6, 30, 2, 631);
     			attr_dev(button1, "class", "button bg-red-500 hover:bg-red-300");
-    			add_location(button1, file$5, 34, 2, 712);
+    			add_location(button1, file$6, 34, 2, 712);
     			attr_dev(div, "class", "modal w-48 h-48 bg-white rounded-lg shadow-xl flex flex-col justify-center items-center svelte-18xvqek");
     			set_style(div, "--xCoordinate", /*xCoordinate*/ ctx[0] + 64 + "px");
     			set_style(div, "--yCoordinate", /*yCoordinate*/ ctx[1] + "px");
-    			add_location(div, file$5, 22, 0, 397);
+    			add_location(div, file$6, 22, 0, 397);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -2452,7 +3151,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_fragment$5.name,
+    		id: create_fragment$6.name,
     		type: "component",
     		source: "",
     		ctx
@@ -2461,7 +3160,7 @@ var app = (function () {
     	return block;
     }
 
-    function instance$5($$self, $$props, $$invalidate) {
+    function instance$6($$self, $$props, $$invalidate) {
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("Modal", slots, []);
     	let { xCoordinate = 0 } = $$props;
@@ -2515,7 +3214,7 @@ var app = (function () {
     	constructor(options) {
     		super(options);
 
-    		init(this, options, instance$5, create_fragment$5, safe_not_equal, {
+    		init(this, options, instance$6, create_fragment$6, safe_not_equal, {
     			xCoordinate: 0,
     			yCoordinate: 1,
     			handleModalCorrect: 2,
@@ -2526,7 +3225,7 @@ var app = (function () {
     			component: this,
     			tagName: "Modal",
     			options,
-    			id: create_fragment$5.name
+    			id: create_fragment$6.name
     		});
 
     		const { ctx } = this.$$;
@@ -2577,16 +3276,261 @@ var app = (function () {
     /* src/App.svelte generated by Svelte v3.31.2 */
 
     const { window: window_1 } = globals;
-    const file$6 = "src/App.svelte";
+    const file$7 = "src/App.svelte";
 
     function get_each_context$1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[28] = list[i];
+    	child_ctx[27] = list[i];
     	return child_ctx;
     }
 
-    // (181:0) {#if $uiState.modalIsVisible}
-    function create_if_block_3(ctx) {
+    // (155:0) {:else}
+    function create_else_block(ctx) {
+    	let header;
+    	let updating_withTimeConstraint;
+    	let updating_fretboardNavigationQuestions;
+    	let t0;
+    	let t1;
+    	let main;
+    	let section;
+    	let notegrid;
+    	let t2;
+    	let div;
+    	let t3;
+    	let current;
+
+    	function header_withTimeConstraint_binding(value) {
+    		/*header_withTimeConstraint_binding*/ ctx[11].call(null, value);
+    	}
+
+    	function header_fretboardNavigationQuestions_binding(value) {
+    		/*header_fretboardNavigationQuestions_binding*/ ctx[12].call(null, value);
+    	}
+
+    	let header_props = {
+    		time: /*time*/ ctx[0],
+    		resetGame: /*resetGame*/ ctx[6],
+    		startRandomNoteQuiz: /*startRandomNoteQuiz*/ ctx[7]
+    	};
+
+    	if (/*withTimeConstraint*/ ctx[2] !== void 0) {
+    		header_props.withTimeConstraint = /*withTimeConstraint*/ ctx[2];
+    	}
+
+    	if (/*fretboardNavigationQuestions*/ ctx[3] !== void 0) {
+    		header_props.fretboardNavigationQuestions = /*fretboardNavigationQuestions*/ ctx[3];
+    	}
+
+    	header = new Header({ props: header_props, $$inline: true });
+    	binding_callbacks.push(() => bind(header, "withTimeConstraint", header_withTimeConstraint_binding));
+    	binding_callbacks.push(() => bind(header, "fretboardNavigationQuestions", header_fretboardNavigationQuestions_binding));
+    	let if_block0 = /*$uiState*/ ctx[4].modalIsVisible && create_if_block_4(ctx);
+
+    	notegrid = new NoteGrid({
+    			props: {
+    				noteGradiations: /*noteGradiations*/ ctx[5]
+    			},
+    			$$inline: true
+    		});
+
+    	let each_value = [0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1];
+    	validate_each_argument(each_value);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < 12; i += 1) {
+    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
+    	}
+
+    	let if_block1 = /*gameScore*/ ctx[1] && create_if_block_1$1(ctx);
+
+    	const block = {
+    		c: function create() {
+    			create_component(header.$$.fragment);
+    			t0 = space();
+    			if (if_block0) if_block0.c();
+    			t1 = space();
+    			main = element("main");
+    			section = element("section");
+    			create_component(notegrid.$$.fragment);
+    			t2 = space();
+    			div = element("div");
+
+    			for (let i = 0; i < 12; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			t3 = space();
+    			if (if_block1) if_block1.c();
+    			attr_dev(div, "class", "note-grid mt-4 svelte-1nudaf4");
+    			add_location(div, file$7, 172, 6, 4350);
+    			attr_dev(section, "class", "mt-8");
+    			add_location(section, file$7, 170, 4, 4268);
+    			attr_dev(main, "class", "text-center flex flex-col justify-center");
+    			add_location(main, file$7, 167, 2, 4195);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(header, target, anchor);
+    			insert_dev(target, t0, anchor);
+    			if (if_block0) if_block0.m(target, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, main, anchor);
+    			append_dev(main, section);
+    			mount_component(notegrid, section, null);
+    			append_dev(section, t2);
+    			append_dev(section, div);
+
+    			for (let i = 0; i < 12; i += 1) {
+    				each_blocks[i].m(div, null);
+    			}
+
+    			append_dev(main, t3);
+    			if (if_block1) if_block1.m(main, null);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			const header_changes = {};
+    			if (dirty & /*time*/ 1) header_changes.time = /*time*/ ctx[0];
+
+    			if (!updating_withTimeConstraint && dirty & /*withTimeConstraint*/ 4) {
+    				updating_withTimeConstraint = true;
+    				header_changes.withTimeConstraint = /*withTimeConstraint*/ ctx[2];
+    				add_flush_callback(() => updating_withTimeConstraint = false);
+    			}
+
+    			if (!updating_fretboardNavigationQuestions && dirty & /*fretboardNavigationQuestions*/ 8) {
+    				updating_fretboardNavigationQuestions = true;
+    				header_changes.fretboardNavigationQuestions = /*fretboardNavigationQuestions*/ ctx[3];
+    				add_flush_callback(() => updating_fretboardNavigationQuestions = false);
+    			}
+
+    			header.$set(header_changes);
+
+    			if (/*$uiState*/ ctx[4].modalIsVisible) {
+    				if (if_block0) {
+    					if_block0.p(ctx, dirty);
+
+    					if (dirty & /*$uiState*/ 16) {
+    						transition_in(if_block0, 1);
+    					}
+    				} else {
+    					if_block0 = create_if_block_4(ctx);
+    					if_block0.c();
+    					transition_in(if_block0, 1);
+    					if_block0.m(t1.parentNode, t1);
+    				}
+    			} else if (if_block0) {
+    				group_outros();
+
+    				transition_out(if_block0, 1, 1, () => {
+    					if_block0 = null;
+    				});
+
+    				check_outros();
+    			}
+
+    			if (/*gameScore*/ ctx[1]) {
+    				if (if_block1) {
+    					if_block1.p(ctx, dirty);
+
+    					if (dirty & /*gameScore*/ 2) {
+    						transition_in(if_block1, 1);
+    					}
+    				} else {
+    					if_block1 = create_if_block_1$1(ctx);
+    					if_block1.c();
+    					transition_in(if_block1, 1);
+    					if_block1.m(main, null);
+    				}
+    			} else if (if_block1) {
+    				group_outros();
+
+    				transition_out(if_block1, 1, 1, () => {
+    					if_block1 = null;
+    				});
+
+    				check_outros();
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(header.$$.fragment, local);
+    			transition_in(if_block0);
+    			transition_in(notegrid.$$.fragment, local);
+    			transition_in(if_block1);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(header.$$.fragment, local);
+    			transition_out(if_block0);
+    			transition_out(notegrid.$$.fragment, local);
+    			transition_out(if_block1);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(header, detaching);
+    			if (detaching) detach_dev(t0);
+    			if (if_block0) if_block0.d(detaching);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(main);
+    			destroy_component(notegrid);
+    			destroy_each(each_blocks, detaching);
+    			if (if_block1) if_block1.d();
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_else_block.name,
+    		type: "else",
+    		source: "(155:0) {:else}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (151:0) {#if window.innerWidth < 780}
+    function create_if_block$1(ctx) {
+    	let h2;
+    	let code;
+    	let t1;
+
+    	const block = {
+    		c: function create() {
+    			h2 = element("h2");
+    			code = element("code");
+    			code.textContent = "Sveltuir";
+    			t1 = text(" is only useable on devices with a screen width that is greater than 780px");
+    			add_location(code, file$7, 152, 4, 3662);
+    			attr_dev(h2, "class", "text-2xl font-black text-green-700 text-center flex flex-col justify-center m-4");
+    			add_location(h2, file$7, 151, 2, 3565);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, h2, anchor);
+    			append_dev(h2, code);
+    			append_dev(h2, t1);
+    		},
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(h2);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block$1.name,
+    		type: "if",
+    		source: "(151:0) {#if window.innerWidth < 780}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (164:2) {#if $uiState.modalIsVisible}
+    function create_if_block_4(ctx) {
     	let modal;
     	let updating_xCoordinate;
     	let current;
@@ -2644,24 +3588,24 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block_3.name,
+    		id: create_if_block_4.name,
     		type: "if",
-    		source: "(181:0) {#if $uiState.modalIsVisible}",
+    		source: "(164:2) {#if $uiState.modalIsVisible}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (195:8) {:else}
-    function create_else_block(ctx) {
+    // (178:10) {:else}
+    function create_else_block_1(ctx) {
     	let span;
 
     	const block = {
     		c: function create() {
     			span = element("span");
     			span.textContent = "-";
-    			add_location(span, file$6, 195, 10, 4648);
+    			add_location(span, file$7, 178, 12, 4583);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, span, anchor);
@@ -2673,24 +3617,24 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_else_block.name,
+    		id: create_else_block_1.name,
     		type: "else",
-    		source: "(195:8) {:else}",
+    		source: "(178:10) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (192:8) {#if dot == 1}
-    function create_if_block_2(ctx) {
+    // (175:10) {#if dot == 1}
+    function create_if_block_3(ctx) {
     	let button;
 
     	const block = {
     		c: function create() {
     			button = element("button");
     			attr_dev(button, "class", "bg-red-400 w-8 h-8 rounded-full hover:bg-red-200");
-    			add_location(button, file$6, 192, 10, 4536);
+    			add_location(button, file$7, 175, 12, 4465);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, button, anchor);
@@ -2702,25 +3646,25 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block_2.name,
+    		id: create_if_block_3.name,
     		type: "if",
-    		source: "(192:8) {#if dot == 1}",
+    		source: "(175:10) {#if dot == 1}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (191:6) {#each [0,0,1,0,1,0,1,0,1,0,0,1] as dot}
+    // (174:8) {#each [0,0,1,0,1,0,1,0,1,0,0,1] as dot}
     function create_each_block$1(ctx) {
     	let if_block_anchor;
 
-    	function select_block_type(ctx, dirty) {
-    		if (/*dot*/ ctx[28] == 1) return create_if_block_2;
-    		return create_else_block;
+    	function select_block_type_1(ctx, dirty) {
+    		if (/*dot*/ ctx[27] == 1) return create_if_block_3;
+    		return create_else_block_1;
     	}
 
-    	let current_block_type = select_block_type(ctx);
+    	let current_block_type = select_block_type_1(ctx);
     	let if_block = current_block_type(ctx);
 
     	const block = {
@@ -2743,15 +3687,15 @@ var app = (function () {
     		block,
     		id: create_each_block$1.name,
     		type: "each",
-    		source: "(191:6) {#each [0,0,1,0,1,0,1,0,1,0,0,1] as dot}",
+    		source: "(174:8) {#each [0,0,1,0,1,0,1,0,1,0,0,1] as dot}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (202:2) {#if gameScore}
-    function create_if_block$1(ctx) {
+    // (185:4) {#if gameScore}
+    function create_if_block_1$1(ctx) {
     	let section;
     	let h3;
     	let t1;
@@ -2770,7 +3714,7 @@ var app = (function () {
     	let t9;
     	let section_transition;
     	let current;
-    	let if_block = /*withTimeConstraint*/ ctx[2] && create_if_block_1(ctx);
+    	let if_block = /*withTimeConstraint*/ ctx[2] && create_if_block_2$1(ctx);
 
     	const block = {
     		c: function create() {
@@ -2793,18 +3737,18 @@ var app = (function () {
     			t9 = space();
     			if (if_block) if_block.c();
     			attr_dev(h3, "class", "text-2xl text-green-700 font-black");
-    			add_location(h3, file$6, 203, 6, 4843);
+    			add_location(h3, file$7, 186, 8, 4792);
     			attr_dev(h40, "class", "text-xl text-green-700 font-mono mr-2");
-    			add_location(h40, file$6, 205, 8, 4976);
+    			add_location(h40, file$7, 188, 10, 4929);
     			attr_dev(p0, "class", "mr-8");
-    			add_location(p0, file$6, 206, 8, 5047);
+    			add_location(p0, file$7, 189, 10, 5002);
     			attr_dev(h41, "class", "text-xl text-red-700 font-mono mr-2");
-    			add_location(h41, file$6, 208, 8, 5098);
-    			add_location(p1, file$6, 209, 8, 5165);
+    			add_location(h41, file$7, 191, 10, 5053);
+    			add_location(p1, file$7, 192, 10, 5122);
     			attr_dev(div, "class", "flex flex-row justify-center items-center");
-    			add_location(div, file$6, 204, 6, 4912);
+    			add_location(div, file$7, 187, 8, 4863);
     			attr_dev(section, "class", "mt-8 flex flex-col justify-center items-center");
-    			add_location(section, file$6, 202, 4, 4738);
+    			add_location(section, file$7, 185, 6, 4685);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, section, anchor);
@@ -2832,7 +3776,7 @@ var app = (function () {
     				if (if_block) {
     					if_block.p(ctx, dirty);
     				} else {
-    					if_block = create_if_block_1(ctx);
+    					if_block = create_if_block_2$1(ctx);
     					if_block.c();
     					if_block.m(section, null);
     				}
@@ -2865,17 +3809,17 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$1.name,
+    		id: create_if_block_1$1.name,
     		type: "if",
-    		source: "(202:2) {#if gameScore}",
+    		source: "(185:4) {#if gameScore}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (212:6) {#if withTimeConstraint}
-    function create_if_block_1(ctx) {
+    // (195:8) {#if withTimeConstraint}
+    function create_if_block_2$1(ctx) {
     	let div;
     	let h40;
     	let t1;
@@ -2904,14 +3848,14 @@ var app = (function () {
     			p1 = element("p");
     			t6 = text(t6_value);
     			attr_dev(h40, "class", "text-xl text-green-700 font-mono mr-2");
-    			add_location(h40, file$6, 213, 10, 5308);
+    			add_location(h40, file$7, 196, 12, 5273);
     			attr_dev(p0, "class", "mr-8");
-    			add_location(p0, file$6, 214, 10, 5381);
+    			add_location(p0, file$7, 197, 12, 5348);
     			attr_dev(h41, "class", "text-xl text-red-700 font-mono mr-2");
-    			add_location(h41, file$6, 216, 10, 5435);
-    			add_location(p1, file$6, 217, 10, 5510);
+    			add_location(h41, file$7, 199, 12, 5400);
+    			add_location(p1, file$7, 200, 12, 5477);
     			attr_dev(div, "class", "flex flex-row justify-center items-center");
-    			add_location(div, file$6, 212, 8, 5242);
+    			add_location(div, file$7, 195, 10, 5205);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -2936,126 +3880,47 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block_1.name,
+    		id: create_if_block_2$1.name,
     		type: "if",
-    		source: "(212:6) {#if withTimeConstraint}",
+    		source: "(195:8) {#if withTimeConstraint}",
     		ctx
     	});
 
     	return block;
     }
 
-    function create_fragment$6(ctx) {
-    	let header;
-    	let updating_withTimeConstraint;
-    	let updating_fretboardNavigationQuestions;
-    	let t0;
-    	let t1;
-    	let main;
-    	let section;
-    	let notegrid;
-    	let t2;
-    	let div;
-    	let t3;
-    	let t4;
+    function create_fragment$7(ctx) {
+    	let current_block_type_index;
+    	let if_block;
+    	let t;
     	let footer;
     	let current;
     	let mounted;
     	let dispose;
+    	const if_block_creators = [create_if_block$1, create_else_block];
+    	const if_blocks = [];
 
-    	function header_withTimeConstraint_binding(value) {
-    		/*header_withTimeConstraint_binding*/ ctx[11].call(null, value);
+    	function select_block_type(ctx, dirty) {
+    		if (window.innerWidth < 780) return 0;
+    		return 1;
     	}
 
-    	function header_fretboardNavigationQuestions_binding(value) {
-    		/*header_fretboardNavigationQuestions_binding*/ ctx[12].call(null, value);
-    	}
-
-    	let header_props = {
-    		time: /*time*/ ctx[0],
-    		resetGame: /*resetGame*/ ctx[6],
-    		startRandomNoteQuiz: /*startRandomNoteQuiz*/ ctx[7]
-    	};
-
-    	if (/*withTimeConstraint*/ ctx[2] !== void 0) {
-    		header_props.withTimeConstraint = /*withTimeConstraint*/ ctx[2];
-    	}
-
-    	if (/*fretboardNavigationQuestions*/ ctx[3] !== void 0) {
-    		header_props.fretboardNavigationQuestions = /*fretboardNavigationQuestions*/ ctx[3];
-    	}
-
-    	header = new Header({ props: header_props, $$inline: true });
-    	binding_callbacks.push(() => bind(header, "withTimeConstraint", header_withTimeConstraint_binding));
-    	binding_callbacks.push(() => bind(header, "fretboardNavigationQuestions", header_fretboardNavigationQuestions_binding));
-    	let if_block0 = /*$uiState*/ ctx[4].modalIsVisible && create_if_block_3(ctx);
-
-    	notegrid = new NoteGrid({
-    			props: {
-    				noteGradiations: /*noteGradiations*/ ctx[5]
-    			},
-    			$$inline: true
-    		});
-
-    	let each_value = [0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1];
-    	validate_each_argument(each_value);
-    	let each_blocks = [];
-
-    	for (let i = 0; i < 12; i += 1) {
-    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
-    	}
-
-    	let if_block1 = /*gameScore*/ ctx[1] && create_if_block$1(ctx);
+    	current_block_type_index = select_block_type();
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
     	footer = new Footer({ $$inline: true });
 
     	const block = {
     		c: function create() {
-    			create_component(header.$$.fragment);
-    			t0 = space();
-    			if (if_block0) if_block0.c();
-    			t1 = space();
-    			main = element("main");
-    			section = element("section");
-    			create_component(notegrid.$$.fragment);
-    			t2 = space();
-    			div = element("div");
-
-    			for (let i = 0; i < 12; i += 1) {
-    				each_blocks[i].c();
-    			}
-
-    			t3 = space();
-    			if (if_block1) if_block1.c();
-    			t4 = space();
+    			if_block.c();
+    			t = space();
     			create_component(footer.$$.fragment);
-    			attr_dev(div, "class", "note-grid mt-4 svelte-1nudaf4");
-    			add_location(div, file$6, 189, 4, 4426);
-    			attr_dev(section, "class", "mt-8");
-    			add_location(section, file$6, 187, 2, 4348);
-    			attr_dev(main, "class", " text-center flex flex-col justify-center");
-    			add_location(main, file$6, 184, 0, 4286);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			mount_component(header, target, anchor);
-    			insert_dev(target, t0, anchor);
-    			if (if_block0) if_block0.m(target, anchor);
-    			insert_dev(target, t1, anchor);
-    			insert_dev(target, main, anchor);
-    			append_dev(main, section);
-    			mount_component(notegrid, section, null);
-    			append_dev(section, t2);
-    			append_dev(section, div);
-
-    			for (let i = 0; i < 12; i += 1) {
-    				each_blocks[i].m(div, null);
-    			}
-
-    			append_dev(main, t3);
-    			if (if_block1) if_block1.m(main, null);
-    			insert_dev(target, t4, anchor);
+    			if_blocks[current_block_type_index].m(target, anchor);
+    			insert_dev(target, t, anchor);
     			mount_component(footer, target, anchor);
     			current = true;
 
@@ -3065,96 +3930,22 @@ var app = (function () {
     			}
     		},
     		p: function update(ctx, [dirty]) {
-    			const header_changes = {};
-    			if (dirty & /*time*/ 1) header_changes.time = /*time*/ ctx[0];
-
-    			if (!updating_withTimeConstraint && dirty & /*withTimeConstraint*/ 4) {
-    				updating_withTimeConstraint = true;
-    				header_changes.withTimeConstraint = /*withTimeConstraint*/ ctx[2];
-    				add_flush_callback(() => updating_withTimeConstraint = false);
-    			}
-
-    			if (!updating_fretboardNavigationQuestions && dirty & /*fretboardNavigationQuestions*/ 8) {
-    				updating_fretboardNavigationQuestions = true;
-    				header_changes.fretboardNavigationQuestions = /*fretboardNavigationQuestions*/ ctx[3];
-    				add_flush_callback(() => updating_fretboardNavigationQuestions = false);
-    			}
-
-    			header.$set(header_changes);
-
-    			if (/*$uiState*/ ctx[4].modalIsVisible) {
-    				if (if_block0) {
-    					if_block0.p(ctx, dirty);
-
-    					if (dirty & /*$uiState*/ 16) {
-    						transition_in(if_block0, 1);
-    					}
-    				} else {
-    					if_block0 = create_if_block_3(ctx);
-    					if_block0.c();
-    					transition_in(if_block0, 1);
-    					if_block0.m(t1.parentNode, t1);
-    				}
-    			} else if (if_block0) {
-    				group_outros();
-
-    				transition_out(if_block0, 1, 1, () => {
-    					if_block0 = null;
-    				});
-
-    				check_outros();
-    			}
-
-    			if (/*gameScore*/ ctx[1]) {
-    				if (if_block1) {
-    					if_block1.p(ctx, dirty);
-
-    					if (dirty & /*gameScore*/ 2) {
-    						transition_in(if_block1, 1);
-    					}
-    				} else {
-    					if_block1 = create_if_block$1(ctx);
-    					if_block1.c();
-    					transition_in(if_block1, 1);
-    					if_block1.m(main, null);
-    				}
-    			} else if (if_block1) {
-    				group_outros();
-
-    				transition_out(if_block1, 1, 1, () => {
-    					if_block1 = null;
-    				});
-
-    				check_outros();
-    			}
+    			if_block.p(ctx, dirty);
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(header.$$.fragment, local);
-    			transition_in(if_block0);
-    			transition_in(notegrid.$$.fragment, local);
-    			transition_in(if_block1);
+    			transition_in(if_block);
     			transition_in(footer.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(header.$$.fragment, local);
-    			transition_out(if_block0);
-    			transition_out(notegrid.$$.fragment, local);
-    			transition_out(if_block1);
+    			transition_out(if_block);
     			transition_out(footer.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			destroy_component(header, detaching);
-    			if (detaching) detach_dev(t0);
-    			if (if_block0) if_block0.d(detaching);
-    			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(main);
-    			destroy_component(notegrid);
-    			destroy_each(each_blocks, detaching);
-    			if (if_block1) if_block1.d();
-    			if (detaching) detach_dev(t4);
+    			if_blocks[current_block_type_index].d(detaching);
+    			if (detaching) detach_dev(t);
     			destroy_component(footer, detaching);
     			mounted = false;
     			dispose();
@@ -3163,7 +3954,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_fragment$6.name,
+    		id: create_fragment$7.name,
     		type: "component",
     		source: "",
     		ctx
@@ -3172,7 +3963,7 @@ var app = (function () {
     	return block;
     }
 
-    function instance$6($$self, $$props, $$invalidate) {
+    function instance$7($$self, $$props, $$invalidate) {
     	let $notes;
     	let $uiState;
     	let $quizNotes;
@@ -3270,7 +4061,7 @@ var app = (function () {
     	}
 
     	function getTiming() {
-    		return time < 5;
+    		return time < $uiState.timing;
     	}
 
     	function toggleModal() {
@@ -3281,27 +4072,6 @@ var app = (function () {
     			};
     		});
     	}
-
-    	onMount(function () {
-    		window.innerWidth < 769
-    		? alert("Sveltuir does not work on small screen devices")
-    		: null;
-    	});
-
-    	const keyCodeToNote = {
-    		c: "c",
-    		cis: "C",
-    		d: "d",
-    		dis: "D",
-    		e: "e",
-    		f: "f",
-    		fis: "F",
-    		g: "g",
-    		gis: "G",
-    		a: "a",
-    		ais: "A",
-    		b: "b"
-    	};
 
     	function handleKeydown(event) {
     		key = event.key;
@@ -3360,13 +4130,12 @@ var app = (function () {
 
     	$$self.$capture_state = () => ({
     		onMount,
+    		blur,
     		notes,
     		selectedNotes,
     		quizNotes,
     		uiState,
-    		blur,
     		Game,
-    		FretboardNavigation,
     		createNoteId,
     		evaluateKeyInput,
     		isNoteKey,
@@ -3392,7 +4161,6 @@ var app = (function () {
     		handleModalWrong,
     		getTiming,
     		toggleModal,
-    		keyCodeToNote,
     		handleKeydown,
     		handleKeydownCorrect,
     		handleKeydownWrong,
@@ -3437,13 +4205,13 @@ var app = (function () {
     class App extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$6, create_fragment$6, safe_not_equal, {});
+    		init(this, options, instance$7, create_fragment$7, safe_not_equal, {});
 
     		dispatch_dev("SvelteRegisterComponent", {
     			component: this,
     			tagName: "App",
     			options,
-    			id: create_fragment$6.name
+    			id: create_fragment$7.name
     		});
     	}
     }
